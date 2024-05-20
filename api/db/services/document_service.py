@@ -168,6 +168,19 @@ class DocumentService(CommonService):
 
     @classmethod
     @DB.connection_context()
+    def get_tenant_id_by_name(cls, name):
+        docs = cls.model.select(
+            Knowledgebase.tenant_id).join(
+            Knowledgebase, on=(
+                    Knowledgebase.id == cls.model.kb_id)).where(
+            cls.model.name == name, Knowledgebase.status == StatusEnum.VALID.value)
+        docs = docs.dicts()
+        if not docs:
+            return
+        return docs[0]["tenant_id"]
+
+    @classmethod
+    @DB.connection_context()
     def get_thumbnails(cls, docids):
         fields = [cls.model.id, cls.model.thumbnail]
         return list(cls.model.select(
@@ -251,4 +264,10 @@ class DocumentService(CommonService):
                 cls.update_by_id(d["id"], info)
             except Exception as e:
                 stat_logger.error("fetch task exception:" + str(e))
+
+    @classmethod
+    @DB.connection_context()
+    def get_kb_doc_count(cls, kb_id):
+        return len(cls.model.select(cls.model.id).where(
+            cls.model.kb_id == kb_id).dicts())
 
