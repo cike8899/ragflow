@@ -12,7 +12,12 @@ import { useGetSharedChatSearchParams } from '@/pages/next-chats/hooks/use-send-
 import { isConversationIdExist } from '@/pages/next-chats/utils';
 import chatService from '@/services/next-chat-service';
 import { buildMessageListWithUuid, getConversationId } from '@/utils/chat';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from '@tanstack/react-query';
 import { useDebounce } from 'ahooks';
 import { has } from 'lodash';
 import { useCallback, useMemo, useRef } from 'react';
@@ -83,7 +88,7 @@ export const useFetchDialogList = () => {
     data,
     isFetching: loading,
     refetch,
-  } = useQuery<{ dialogs: IDialog[]; total: number }>({
+  } = useSuspenseQuery<{ dialogs: IDialog[]; total: number }>({
     queryKey: [
       ChatApiAction.FetchDialogList,
       {
@@ -91,7 +96,6 @@ export const useFetchDialogList = () => {
         ...pagination,
       },
     ],
-    initialData: { dialogs: [], total: 0 },
     gcTime: 0,
     refetchOnWindowFocus: false,
     queryFn: async () => {

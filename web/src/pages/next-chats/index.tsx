@@ -9,8 +9,9 @@ import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChatCard } from './chat-card';
 import { useRenameChat } from './hooks/use-rename-chat';
+import { SuspenseSkeleton } from './skeleton';
 
-export default function ChatList() {
+export function ChatList() {
   const { data, setPagination, pagination, handleInputChange, searchString } =
     useFetchDialogList();
   const { t } = useTranslation();
@@ -80,3 +81,9 @@ export default function ChatList() {
     </section>
   );
 }
+
+export default () => (
+  <SuspenseSkeleton>
+    <ChatList />
+  </SuspenseSkeleton>
+);
