@@ -8,10 +8,10 @@ import {
 } from '@/interfaces/database/knowledge';
 import { ITestRetrievalRequestBody } from '@/interfaces/request/knowledge';
 import i18n from '@/locales/config';
-import kbService, {
+import datasetService, {
   getKnowledgeGraph,
   listDataset,
-} from '@/services/knowledge-service';
+} from '@/services/dataset-service';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDebounce } from 'ahooks';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -30,6 +30,7 @@ export const enum KnowledgeApiAction {
   FetchKnowledgeDetail = 'fetchKnowledgeDetail',
   FetchKnowledgeGraph = 'fetchKnowledgeGraph',
   FetchMetadata = 'fetchMetadata',
+  FetchTagListByKnowledgeIds = 'fetchTagListByKnowledgeIds',
 }
 
 export const useKnowledgeBaseId = (): string => {
@@ -76,7 +77,7 @@ export const useTestRetrieval = () => {
     enabled: false,
     gcTime: 0,
     queryFn: async () => {
-      const { data } = await kbService.retrieval_test(queryParams);
+      const { data } = await datasetService.retrieval_test(queryParams);
       return data?.data ?? {};
     },
   });
@@ -166,7 +167,7 @@ export const useCreateKnowledge = () => {
   } = useMutation({
     mutationKey: [KnowledgeApiAction.CreateKnowledge],
     mutationFn: async (params: { id?: string; name: string }) => {
-      const { data = {} } = await kbService.createKb(params);
+      const { data = {} } = await datasetService.createKb(params);
       if (data.code === 0) {
         message.success(
           i18n.t(`message.${params?.id ? 'modified' : 'created'}`),
@@ -189,7 +190,7 @@ export const useDeleteKnowledge = () => {
   } = useMutation({
     mutationKey: [KnowledgeApiAction.DeleteKnowledge],
     mutationFn: async (id: string) => {
-      const { data } = await kbService.rmKb({ kb_id: id });
+      const { data } = await datasetService.rmKb({ kb_id: id });
       if (data.code === 0) {
         message.success(i18n.t(`message.deleted`));
         queryClient.invalidateQueries({
@@ -213,7 +214,7 @@ export const useUpdateKnowledge = (shouldFetchList = false) => {
   } = useMutation({
     mutationKey: [KnowledgeApiAction.SaveKnowledge],
     mutationFn: async (params: Record<string, any>) => {
-      const { data = {} } = await kbService.updateKb({
+      const { data = {} } = await datasetService.updateKb({
         kb_id: params?.kb_id ? params?.kb_id : knowledgeBaseId,
         ...params,
       });
@@ -251,9 +252,14 @@ export const useFetchKnowledgeBaseConfiguration = (refreshCount?: number) => {
     initialData: {} as IKnowledge,
     gcTime: 0,
     queryFn: async () => {
-      const { data } = await kbService.get_kb_detail({
-        kb_id: knowledgeBaseId,
-      });
+      const { data } = await datasetService.get_kb_detail(
+        {
+          params: {
+            kb_id: knowledgeBaseId,
+          },
+        },
+        true,
+      );
       return data?.data ?? {};
     },
   });
@@ -287,10 +293,37 @@ export function useFetchKnowledgeMetadata(kbIds: string[] = []) {
     enabled: kbIds.length > 0,
     gcTime: 0,
     queryFn: async () => {
-      const { data } = await kbService.getMeta({ kb_ids: kbIds.join(',') });
+      const { data } = await datasetService.getMeta(
+        {
+          params: {
+            kb_ids: kbIds.join(','),
+          },
+        },
+        true,
+      );
       return data?.data ?? {};
     },
   });
 
   return { data, loading };
 }
+
+export const useFetchTagListByKnowledgeIds = () => {
+  const [knowledgeIds, setKnowledgeIds] = useState<string[]>([]);
+
+  const { data, isFetching: loading } = useQuery<Array<[string, number]>>({
+    queryKey: [KnowledgeApiAction.FetchTagListByKnowledgeIds],
+    enabled: knowledgeIds.length > 0,
+    initialData: [],
+    gcTime: 0, // https://tanstack.com/query/latest/docs/framework/react/guides/caching?from=reactQueryV3
+    queryFn: async () => {
+      const { data } = await datasetService.listTagByKnowledgeIds({
+        kb_ids: knowledgeIds.join(','),
+      });
+      const list = data?.data || [];
+      return list;
+    },
+  });
+
+  return { list: data, loading, setKnowledgeIds };
+};
