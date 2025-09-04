@@ -69,7 +69,15 @@ export function registerNextServer<T extends string>(
     if (Object.prototype.hasOwnProperty.call(requestRecord, name)) {
       const { url, method } = requestRecord[name];
       server[name] = (config, useAxiosNativeConfig = false) => {
-        const nextConfig = useAxiosNativeConfig ? config : { data: config };
+        let nextConfig: Record<string, any> = { data: config };
+        if (useAxiosNativeConfig) {
+          nextConfig = isObject(config) ? config : {};
+        } else if (
+          method.toLowerCase() === 'get' &&
+          typeof url !== 'function'
+        ) {
+          nextConfig.params = config;
+        }
         const finalConfig = isObject(nextConfig) ? nextConfig : {};
         const nextUrl = typeof url === 'function' ? url(config) : url;
         return request({ url: nextUrl, method, ...finalConfig });

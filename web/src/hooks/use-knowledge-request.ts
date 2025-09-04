@@ -252,14 +252,9 @@ export const useFetchKnowledgeBaseConfiguration = (refreshCount?: number) => {
     initialData: {} as IKnowledge,
     gcTime: 0,
     queryFn: async () => {
-      const { data } = await datasetService.get_kb_detail(
-        {
-          params: {
-            kb_id: knowledgeBaseId,
-          },
-        },
-        true,
-      );
+      const { data } = await datasetService.get_kb_detail({
+        kb_id: knowledgeBaseId,
+      });
       return data?.data ?? {};
     },
   });
@@ -308,7 +303,7 @@ export function useFetchKnowledgeMetadata(kbIds: string[] = []) {
   return { data, loading };
 }
 
-export const useFetchTagListByKnowledgeIds = () => {
+export function useFetchTagListByKnowledgeIds() {
   const [knowledgeIds, setKnowledgeIds] = useState<string[]>([]);
 
   const { data, isFetching: loading } = useQuery<Array<[string, number]>>({
@@ -326,4 +321,4 @@ export const useFetchTagListByKnowledgeIds = () => {
   });
 
   return { list: data, loading, setKnowledgeIds };
-};
+}
