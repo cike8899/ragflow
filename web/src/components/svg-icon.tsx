@@ -67,7 +67,6 @@ export const LlmIcon = ({
   const themeIcons = [
     LLMFactory.FishAudio,
     LLMFactory.TogetherAI,
-    LLMFactory.Meituan,
     LLMFactory.Longcat,
   ];
   let icon = useMemo(() => {
