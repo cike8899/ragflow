@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"ragflow/internal/common"
-	"ragflow/internal/init_data"
 	"ragflow/internal/server"
 	"ragflow/internal/utility"
 	"strings"
@@ -28,7 +28,29 @@ import (
 	"ragflow/internal/tokenizer"
 )
 
+func printHelp() {
+	fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS]\n\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "RAGFlow Server - Open-source RAG engine based on deep document understanding\n\n")
+	fmt.Fprintf(os.Stderr, "Options:\n")
+	fmt.Fprintf(os.Stderr, "  -p, --port int\tServer port (overrides config file)\n")
+	fmt.Fprintf(os.Stderr, "  -h, --help   \tShow this help message and exit\n")
+	fmt.Fprintf(os.Stderr, "\nExamples:\n")
+	fmt.Fprintf(os.Stderr, "  %s           # Start server with config file port\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "  %s -p 8080   # Start server on port 8080\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "  %s --port 8080 # Start server on port 8080\n", os.Args[0])
+}
+
 func main() {
+	// Parse command line flags
+	var portFlag int
+	flag.IntVar(&portFlag, "port", 0, "Server port (overrides config file)")
+	flag.IntVar(&portFlag, "p", 0, "Server port (shorthand, overrides config file)")
+
+	// Custom help message
+	flag.Usage = printHelp
+
+	flag.Parse()
+
 	// Initialize logger with default level
 	// logger.Init("info"); // set debug log level
 	if err := logger.Init("info"); err != nil {
@@ -40,6 +62,13 @@ func main() {
 		logger.Fatal("Failed to initialize config", zap.Error(err))
 	}
 
+	// Override port with command line argument if provided
+	if portFlag > 0 {
+		config := server.GetConfig()
+		config.Server.Port = portFlag
+		logger.Info("Port overridden by command line argument", zap.Int("port", portFlag))
+	}
+
 	// Load model providers configuration
 	if err := server.LoadModelProviders(""); err != nil {
 		logger.Fatal("Failed to load model providers", zap.Error(err))
@@ -47,6 +76,9 @@ func main() {
 	logger.Info("Model providers loaded", zap.Int("count", len(server.GetModelProviders())))
 
 	config := server.GetConfig()
+	if config.Server.Port == 0 {
+		logger.Fatal("Server port is not configured. Please specify via --port flag or config file.")
+	}
 
 	// Reinitialize logger with configured level if different
 	if config.Log.Level != "" && config.Log.Level != "info" {
@@ -67,7 +99,7 @@ func main() {
 	}
 
 	// Initialize LLM factory data models from configuration file
-	if err := init_data.InitLLMFactory(); err != nil {
+	if err := dao.InitLLMFactory(); err != nil {
 		logger.Error("Failed to initialize LLM factory", err)
 	} else {
 		logger.Info("LLM factory initialized successfully")
@@ -135,6 +167,7 @@ func startServer(config *server.Config) {
 	fileService := service.NewFileService()
 
 	// Initialize handler layer
+	authHandler := handler.NewAuthHandler()
 	userHandler := handler.NewUserHandler(userService)
 	tenantHandler := handler.NewTenantHandler(tenantService, userService)
 	documentHandler := handler.NewDocumentHandler(documentService)
@@ -149,7 +182,7 @@ func startServer(config *server.Config) {
 	fileHandler := handler.NewFileHandler(fileService, userService)
 
 	// Initialize router
-	r := router.NewRouter(userHandler, tenantHandler, documentHandler, systemHandler, kbHandler, chunkHandler, llmHandler, chatHandler, chatSessionHandler, connectorHandler, searchHandler, fileHandler)
+	r := router.NewRouter(authHandler, userHandler, tenantHandler, documentHandler, systemHandler, kbHandler, chunkHandler, llmHandler, chatHandler, chatSessionHandler, connectorHandler, searchHandler, fileHandler)
 
 	// Create Gin engine
 	ginEngine := gin.New()

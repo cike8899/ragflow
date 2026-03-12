@@ -750,7 +750,12 @@ async def delete(tenant_id, dataset_id):
 
     doc_ids = req.get("ids")
     if not doc_ids:
-        return get_result()
+        if req.get("delete_all") is True:
+            doc_ids = [doc.id for doc in DocumentService.query(kb_id=dataset_id)]
+            if not doc_ids:
+                return get_result()
+        else:
+            return get_result()
 
     doc_list = doc_ids
 
@@ -1343,7 +1348,17 @@ async def rm_chunk(tenant_id, dataset_id, document_id):
 
     chunk_ids = req.get("chunk_ids")
     if not chunk_ids:
-        return get_result()
+        if req.get("delete_all") is True:
+            doc = docs[0]
+            # Clean up storage assets while index rows still exist for discovery
+            DocumentService.delete_chunk_images(doc, tenant_id)
+            condition = {"doc_id": document_id}
+            chunk_number = settings.docStoreConn.delete(condition, search.index_name(tenant_id), dataset_id)
+            if chunk_number != 0:
+                DocumentService.decrement_chunk_num(document_id, dataset_id, 1, chunk_number, 0)
+            return get_result(message=f"deleted {chunk_number} chunks")
+        else:
+            return get_result()
 
     condition = {"doc_id": document_id}
     unique_chunk_ids, duplicate_messages = check_duplicate_ids(chunk_ids, "chunk")
@@ -1682,7 +1697,7 @@ async def retrieval_test(tenant_id):
     if not doc_ids:
         metadata_condition = req.get("metadata_condition")
         if metadata_condition:
-            metas = DocMetadataService.get_meta_by_kbs(kb_ids)
+            metas = DocMetadataService.get_flatted_meta_by_kbs(kb_ids)
             doc_ids = meta_filter(metas, convert_conditions(metadata_condition), metadata_condition.get("logic", "and"))
             # If metadata_condition has conditions but no docs match, return empty result
             if not doc_ids and metadata_condition.get("conditions"):

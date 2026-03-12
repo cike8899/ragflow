@@ -103,7 +103,7 @@ func (h *HeartbeatSender) SendHeartbeat() error {
 		Port:        h.port,
 		Version:     h.version,
 		Timestamp:   time.Now(),
-		Ext:         make(map[string]interface{}),
+		Ext:         nil,
 	}
 
 	jsonData, err := json.Marshal(message)
@@ -119,10 +119,9 @@ func (h *HeartbeatSender) SendHeartbeat() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		h.logger.Error("Heartbeat request failed",
-			zap.Int("status_code", resp.StatusCode),
-		)
-		return fmt.Errorf("heartbeat request failed with status code: %d", resp.StatusCode)
+		errMsg := fmt.Errorf("Heartbeat request failed with status code: %d", resp.StatusCode)
+		h.logger.Warn(errMsg.Error())
+		return errMsg
 	}
 
 	h.logger.Debug("Heartbeat sent successfully",
