@@ -38,6 +38,8 @@ type Router struct {
 	connectorHandler     *handler.ConnectorHandler
 	searchHandler        *handler.SearchHandler
 	fileHandler          *handler.FileHandler
+	memoryHandler        *handler.MemoryHandler
+	providerHandler      *handler.ProviderHandler
 }
 
 // NewRouter create router
@@ -56,6 +58,8 @@ func NewRouter(
 	connectorHandler *handler.ConnectorHandler,
 	searchHandler *handler.SearchHandler,
 	fileHandler *handler.FileHandler,
+	memoryHandler *handler.MemoryHandler,
+	providerHandler *handler.ProviderHandler,
 ) *Router {
 	return &Router{
 		authHandler:          authHandler,
@@ -72,23 +76,23 @@ func NewRouter(
 		connectorHandler:     connectorHandler,
 		searchHandler:        searchHandler,
 		fileHandler:          fileHandler,
+		memoryHandler:        memoryHandler,
+		providerHandler:      providerHandler,
 	}
 }
 
 // Setup setup routes
 func (r *Router) Setup(engine *gin.Engine) {
 	// Health check
-	engine.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"status": "ok",
-		})
-	})
+	engine.GET("/health", r.systemHandler.Health)
 
 	// System endpoints
 	engine.GET("/v1/system/ping", r.systemHandler.Ping)
 	engine.GET("/v1/system/config", r.systemHandler.GetConfig)
 	engine.GET("/v1/system/configs", r.systemHandler.GetConfigs)
 	engine.GET("/v1/system/version", r.systemHandler.GetVersion)
+	engine.GET("/v1/system/log_level", r.systemHandler.GetLogLevel)
+	engine.PUT("/v1/system/log_level", r.systemHandler.SetLogLevel)
 	engine.POST("/v1/user/register", r.userHandler.Register)
 	// User login channels endpoint
 	engine.GET("/v1/user/login/channels", r.userHandler.GetLoginChannels)
@@ -116,6 +120,11 @@ func (r *Router) Setup(engine *gin.Engine) {
 		// User set tenant info endpoint
 		authorized.POST("/v1/user/set_tenant_info", r.userHandler.SetTenantInfo)
 
+		// System token endpoints (requires authentication)
+		authorized.GET("/v1/system/token_list", r.systemHandler.ListTokens)
+		authorized.POST("/v1/system/new_token", r.systemHandler.CreateToken)
+		authorized.DELETE("/v1/system/token/:token", r.systemHandler.DeleteToken)
+
 		// API v1 route group
 		v1 := authorized.Group("/api/v1")
 		{
@@ -127,6 +136,13 @@ func (r *Router) Setup(engine *gin.Engine) {
 			//	users.GET("", r.userHandler.ListUsers)
 			//	users.GET("/:id", r.userHandler.GetUserByID)
 			//}
+
+			apiTokens := v1.Group("/tokens")
+			{
+				apiTokens.POST("", r.systemHandler.CreateToken)
+				apiTokens.GET("", r.systemHandler.ListTokens)
+				apiTokens.DELETE("/:token", r.systemHandler.DeleteToken)
+			}
 
 			// Document routes
 			documents := v1.Group("/documents")
@@ -151,6 +167,36 @@ func (r *Router) Setup(engine *gin.Engine) {
 			{
 				authors.GET("/:author_id/documents", r.documentHandler.GetDocumentsByAuthorID)
 			}
+
+			// Memory routes
+			memory := v1.Group("/memories")
+			{
+				memory.POST("", r.memoryHandler.CreateMemory)
+				memory.PUT("/:memory_id", r.memoryHandler.UpdateMemory)
+				memory.DELETE("/:memory_id", r.memoryHandler.DeleteMemory)
+				memory.GET("", r.memoryHandler.ListMemories)
+				memory.GET("/:memory_id/config", r.memoryHandler.GetMemoryConfig)
+				memory.GET("/:memory_id", r.memoryHandler.GetMemoryMessages)
+			}
+
+			// TODO: Message routes - Implementation pending - depends on CanvasService, TaskService and embedding engine
+			// message := v1.Group("/messages")
+			// {
+			// 	message.POST("", r.memoryHandler.AddMessage)
+			// 	message.DELETE("/:memory_id/:message_id", r.memoryHandler.ForgetMessage)
+			// 	message.PUT("/:memory_id/:message_id", r.memoryHandler.UpdateMessage)
+			// 	message.GET("/search", r.memoryHandler.SearchMessage)
+			// 	message.GET("", r.memoryHandler.GetMessages)
+			// 	message.GET("/:memory_id/:message_id/content", r.memoryHandler.GetMessageContent)
+			// }
+			// provider pool route group
+			provider := v1.Group("/providers")
+			{
+				provider.GET("/", r.providerHandler.ListProviders)
+				provider.GET("/:provider_name", r.providerHandler.ShowProvider)
+				provider.GET("/:provider_name/models", r.providerHandler.ListModels)
+				provider.GET("/:provider_name/models/:model_name", r.providerHandler.ShowModel)
+			}
 		}
 
 		// Knowledge base routes
@@ -165,6 +211,8 @@ func (r *Router) Setup(engine *gin.Engine) {
 			kb.GET("/tags", r.knowledgebaseHandler.ListTagsFromKbs)
 			kb.GET("/get_meta", r.knowledgebaseHandler.GetMeta)
 			kb.GET("/basic_info", r.knowledgebaseHandler.GetBasicInfo)
+			kb.POST("/index", r.knowledgebaseHandler.CreateIndex)
+			kb.DELETE("/index", r.knowledgebaseHandler.DeleteIndex)
 
 			// KB ID specific routes
 			kbByID := kb.Group("/:kb_id")
@@ -175,6 +223,13 @@ func (r *Router) Setup(engine *gin.Engine) {
 				kbByID.GET("/knowledge_graph", r.knowledgebaseHandler.KnowledgeGraph)
 				kbByID.DELETE("/knowledge_graph", r.knowledgebaseHandler.DeleteKnowledgeGraph)
 			}
+		}
+
+		// Tenant routes (per-tenant resources)
+		tenant := authorized.Group("/v1/tenant")
+		{
+			tenant.POST("/doc_meta_index", r.tenantHandler.CreateDocMetaIndex)
+			tenant.DELETE("/doc_meta_index", r.tenantHandler.DeleteDocMetaIndex)
 		}
 
 		// Document routes
@@ -188,6 +243,8 @@ func (r *Router) Setup(engine *gin.Engine) {
 		chunk := authorized.Group("/v1/chunk")
 		{
 			chunk.POST("/retrieval_test", r.chunkHandler.RetrievalTest)
+			chunk.GET("/get", r.chunkHandler.Get)
+			chunk.POST("/list", r.chunkHandler.List)
 		}
 
 		// LLM routes
@@ -237,6 +294,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 			file.GET("/parent_folder", r.fileHandler.GetParentFolder)
 			file.GET("/all_parent_folder", r.fileHandler.GetAllParentFolders)
 		}
+
 	}
 
 	// Handle undefined routes

@@ -1,5 +1,5 @@
 #
-#  Copyright 2025 The InfiniFlow Authors. All Rights Reserved.
+#  Copyright 2026 The InfiniFlow Authors. All Rights Reserved.
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -397,9 +397,9 @@ class CreateDatasetReq(Base):
     description: Annotated[str | None, Field(default=None, max_length=65535)]
     embedding_model: Annotated[str | None, Field(default=None, max_length=255, serialization_alias="embd_id")]
     permission: Annotated[Literal["me", "team"], Field(default="me", min_length=1, max_length=16)]
-    chunk_method: Annotated[str | None, Field(default=None, serialization_alias="parser_id")]
     parse_type: Annotated[int | None, Field(default=None, ge=0, le=64)]
     pipeline_id: Annotated[str | None, Field(default=None, min_length=32, max_length=32, serialization_alias="pipeline_id")]
+    chunk_method: Annotated[str | None, Field(default=None, serialization_alias="parser_id")]
     parser_config: Annotated[ParserConfig | None, Field(default=None)]
     auto_metadata_config: Annotated[AutoMetadataConfig | None, Field(default=None)]
     ext: Annotated[dict, Field(default={})]
@@ -409,16 +409,7 @@ class CreateDatasetReq(Base):
     def handle_pipeline_id(cls, v: str | None, info: ValidationInfo):
         if v is None:
             return v
-        if info.data.get("chunk_method") is not None and isinstance(v, str):
-            v = None
-        return v
-
-    @field_validator("parse_type", mode="before")
-    @classmethod
-    def handle_parse_type(cls, v: int | None, info: ValidationInfo):
-        if v is None:
-            return v
-        if info.data.get("chunk_method") is not None and isinstance(v, int):
+        if info.data.get("parse_type", 0) == 1:
             v = None
         return v
 
@@ -633,11 +624,11 @@ class CreateDatasetReq(Base):
             # Both provided → allow pipeline mode
             return self
 
-        # parser_id provided (valid): MUST NOT have parse_type or pipeline_id
+        # parser_id provided (valid): parse_type MUST be one of [None, 1], and MUST NOT have pipeline_id
         if isinstance(self.chunk_method, str):
-            if self.parse_type is not None or self.pipeline_id is not None:
-                invalid = []
-                if self.parse_type is not None:
+            invalid = []
+            if self.parse_type not in [None, 1] or self.pipeline_id is not None:
+                if self.parse_type not in [None, 1]:
                     invalid.append("parse_type")
                 if self.pipeline_id is not None:
                     invalid.append("pipeline_id")
@@ -650,20 +641,21 @@ class CreateDatasetReq(Base):
 
     @field_validator("chunk_method", mode="wrap")
     @classmethod
-    def validate_chunk_method(cls, v: Any, handler) -> Any:
+    def validate_chunk_method(cls, v: Any, handler, info: ValidationInfo) -> Any:
         """Wrap validation to unify error messages, including type errors (e.g. list)."""
-        allowed = {"naive", "book", "email", "laws", "manual", "one", "paper", "picture", "presentation", "qa", "table", "tag"}
-        error_msg = "Input should be 'naive', 'book', 'email', 'laws', 'manual', 'one', 'paper', 'picture', 'presentation', 'qa', 'table' or 'tag'"
-        # Omitted field: handler won't be invoked (wrap still gets value); None treated as explicit invalid
-        if v is None:
-            raise PydanticCustomError("literal_error", error_msg)
+        allowed = {"naive", "book", "email", "laws", "manual", "one", "paper", "picture", "presentation", "qa", "table",
+                   "tag", "resume"}
+        error_msg = "Input should be 'naive', 'book', 'email', 'laws', 'manual', 'one', 'paper', 'picture', 'presentation', 'qa', 'table', 'tag' or 'resume'"
         try:
             # Run inner validation (type checking)
             result = handler(v)
         except Exception:
             raise PydanticCustomError("literal_error", error_msg)
+            # Omitted field: handler won't be invoked (wrap still gets value); None treated as explicit invalid
+        if not result and not info.data.get("pipeline_id", None):
+            raise PydanticCustomError("literal_error", error_msg)
         # After handler, enforce enumeration
-        if not isinstance(result, str) or result == "" or result not in allowed:
+        if result and result not in allowed:
             raise PydanticCustomError("literal_error", error_msg)
         return result
 
@@ -781,3 +773,40 @@ class BaseListReq(BaseModel):
 class ListDatasetReq(BaseListReq):
     include_parsing_status: Annotated[bool, Field(default=False)]
     ext: Annotated[dict, Field(default={})]
+
+
+# ---- File Management Request Models ----
+
+class CreateFolderReq(Base):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255), Field(...)]
+    parent_id: Annotated[str | None, Field(default=None)]
+    type: Annotated[str | None, Field(default=None)]
+
+
+class DeleteFileReq(Base):
+    ids: Annotated[list[str], Field(min_length=1)]
+
+
+class MoveFileReq(Base):
+    src_file_ids: Annotated[list[str], Field(min_length=1)]
+    dest_file_id: Annotated[str | None, Field(default=None)]
+    new_name: Annotated[str | None, StringConstraints(strip_whitespace=True, min_length=1, max_length=255), Field(default=None)]
+
+    @model_validator(mode='after')
+    def check_operation(self):
+        if not self.dest_file_id and not self.new_name:
+            raise ValueError("At least one of dest_file_id or new_name must be provided")
+        if self.new_name and len(self.src_file_ids) > 1:
+            raise ValueError("new_name can only be used with a single file")
+        return self
+
+
+class ListFileReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    parent_id: Annotated[str | None, Field(default=None)]
+    keywords: Annotated[str, Field(default="")]
+    page: Annotated[int, Field(default=1, ge=1)]
+    page_size: Annotated[int, Field(default=15, ge=1, le=100)]
+    orderby: Annotated[str, Field(default="create_time")]
+    desc: Annotated[bool, Field(default=True)]
