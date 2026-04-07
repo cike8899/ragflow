@@ -111,9 +111,15 @@ const (
 	TokenDisable
 	TokenEnable
 	TokenUse
+	TokenThink
 	TokenInsert
 	TokenFile
 	TokenMetadata
+	TokenUpdate
+	TokenRemove
+	TokenChunk
+	TokenDocument
+	TokenTag
 
 	// Literals
 	TokenIdentifier

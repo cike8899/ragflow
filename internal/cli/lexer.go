@@ -255,6 +255,8 @@ func (l *Lexer) lookupIdent(ident string) Token {
 		return Token{Type: TokenChats, Value: ident}
 	case "CHAT":
 		return Token{Type: TokenChat, Value: ident}
+	case "THINK":
+		return Token{Type: TokenThink, Value: ident}
 	case "FILES":
 		return Token{Type: TokenFiles, Value: ident}
 	case "AS":
@@ -325,6 +327,16 @@ func (l *Lexer) lookupIdent(ident string) Token {
 		return Token{Type: TokenMetadata, Value: ident}
 	case "USE":
 		return Token{Type: TokenUse, Value: ident}
+	case "UPDATE":
+		return Token{Type: TokenUpdate, Value: ident}
+	case "REMOVE":
+		return Token{Type: TokenRemove, Value: ident}
+	case "CHUNK":
+		return Token{Type: TokenChunk, Value: ident}
+	case "DOCUMENT":
+		return Token{Type: TokenDocument, Value: ident}
+	case "TAGS":
+		return Token{Type: TokenTag, Value: ident}
 	default:
 		return Token{Type: TokenIdentifier, Value: ident}
 	}

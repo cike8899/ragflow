@@ -162,6 +162,12 @@ func (r *Router) Setup(engine *gin.Engine) {
 				datasets.DELETE("", r.datasetsHandler.DeleteDatasets)
 			}
 
+			// RESTful dataset chunk routes
+			datasetChunks := v1.Group("/datasets/:dataset_id/documents/:document_id/chunks")
+			{
+				datasetChunks.PUT("/:chunk_id", r.chunkHandler.UpdateChunk)
+			}
+
 			// Author routes
 			authors := v1.Group("/authors")
 			{
@@ -193,6 +199,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 			file := v1.Group("/files")
 			{
 				file.POST("", r.fileHandler.UploadFile)
+				file.GET("", r.fileHandler.ListFiles)
 			}
 
 			// provider pool route group
@@ -255,6 +262,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 		{
 			doc.POST("/list", r.documentHandler.ListDocuments)
 			doc.POST("/metadata/summary", r.documentHandler.MetadataSummary)
+			doc.POST("/set_meta", r.documentHandler.SetMeta)
 		}
 
 		// Chunk routes
@@ -307,7 +315,6 @@ func (r *Router) Setup(engine *gin.Engine) {
 		// File routes
 		file := authorized.Group("/v1/file")
 		{
-			file.GET("/list", r.fileHandler.ListFiles)
 			file.GET("/root_folder", r.fileHandler.GetRootFolder)
 			file.GET("/parent_folder", r.fileHandler.GetParentFolder)
 			file.GET("/all_parent_folder", r.fileHandler.GetAllParentFolders)
