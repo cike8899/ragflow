@@ -1655,7 +1655,7 @@ class RAGFlowClient:
         if self.server_type == "admin":
             response = self.http_client.request("GET", "/admin/version", use_api_base=True, auth_kind="admin")
         else:
-            response = self.http_client.request("GET", "/system/version", use_api_base=False, auth_kind="admin")
+            response = self.http_client.request("GET", "/system/version", use_api_base=True, auth_kind="admin")
 
         res_json = response.json()
         if response.status_code == 200:
@@ -1685,7 +1685,7 @@ class RAGFlowClient:
             time.sleep(0.5)
 
     def _list_documents(self, dataset_name: str, dataset_id: str):
-        response = self.http_client.request("POST", f"/document/list?kb_id={dataset_id}", use_api_base=False,
+        response = self.http_client.request("POST", f"/document/list?id={dataset_id}", use_api_base=False,
                                             auth_kind="web")
         res_json = response.json()
         if response.status_code != 200:

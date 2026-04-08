@@ -69,11 +69,11 @@ func (c *RAGFlowClient) ShowServerVersion(cmd *Command) (ResponseIf, error) {
 
 	if iterations > 1 {
 		// Benchmark mode: multiple iterations
-		return c.HTTPClient.RequestWithIterations("GET", "/system/version", false, "web", nil, nil, iterations)
+		return c.HTTPClient.RequestWithIterations("GET", "/system/version", true, "web", nil, nil, iterations)
 	}
 
 	// Single mode
-	resp, err := c.HTTPClient.Request("GET", "/system/version", false, "web", nil, nil)
+	resp, err := c.HTTPClient.Request("GET", "/system/version", true, "web", nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to show version: %w", err)
 	}
@@ -1346,8 +1346,8 @@ func (c *RAGFlowClient) CEList(cmd *Command) (ResponseIf, error) {
 	}
 
 	// Convert to response
-	var response CEListResponse
-	response.outputFormat = c.OutputFormat
+	var response ContextListResponse
+	response.OutputFormat = c.OutputFormat
 	response.Code = 0
 	response.Data = ce.FormatNodes(result.Nodes, string(c.OutputFormat))
 
@@ -1385,8 +1385,8 @@ func (c *RAGFlowClient) CESearch(cmd *Command) (ResponseIf, error) {
 	}
 
 	// Convert to response
-	var response CESearchResponse
-	response.outputFormat = c.OutputFormat
+	var response ContextSearchResponse
+	response.OutputFormat = c.OutputFormat
 	response.Code = 0
 	response.Total = result.Total
 	response.Data = ce.FormatNodes(result.Nodes, string(c.OutputFormat))
