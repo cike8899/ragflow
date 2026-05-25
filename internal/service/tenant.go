@@ -267,11 +267,8 @@ func (s *TenantService) GetTenantList(userID string) ([]*TenantListItem, error) 
 
 // CreateMetadataInDocEngine creates the document metadata table for a tenant
 func (s *TenantService) CreateMetadataInDocEngine(tenantID string) (common.ErrorCode, error) {
-	// Build table name: ragflow_doc_meta_<tenant_id>
-	tableName := fmt.Sprintf("ragflow_doc_meta_%s", tenantID)
-
 	// Call document engine to create doc meta table
-	err := s.docEngine.CreateMetadata(context.Background(), tableName)
+	err := s.docEngine.CreateMetadataStore(context.Background(), tenantID)
 	if err != nil {
 		return common.CodeServerError, fmt.Errorf("failed to create metadata table: %w", err)
 	}
@@ -281,11 +278,8 @@ func (s *TenantService) CreateMetadataInDocEngine(tenantID string) (common.Error
 
 // DeleteMetadataInDocEngine deletes the document metadata table for a tenant
 func (s *TenantService) DeleteMetadataInDocEngine(tenantID string) (common.ErrorCode, error) {
-	// Build table name: ragflow_doc_meta_<tenant_id>
-	tableName := fmt.Sprintf("ragflow_doc_meta_%s", tenantID)
-
 	// Call document engine to delete doc meta table
-	err := s.docEngine.DropTable(context.Background(), tableName)
+	err := s.docEngine.DropMetadataStore(context.Background(), tenantID)
 	if err != nil {
 		return common.CodeServerError, fmt.Errorf("failed to delete doc meta table: %w", err)
 	}
@@ -303,6 +297,38 @@ type ModelItem struct {
 
 type DefaultModelResponse struct {
 	Models []ModelItem `json:"models,omitempty"`
+}
+
+// GetDefaultModelName returns the full default model ID for a tenant and model type
+// Format: modelName@instanceName@providerName or modelName@providerName
+// Returns empty string if no default model is set
+func (s *TenantService) GetDefaultModelName(tenantID string, modelType entity.ModelType) (string, error) {
+	tenant, err := s.tenantDAO.GetByID(tenantID)
+	if err != nil {
+		return "", err
+	}
+
+	var modelID string
+	switch modelType {
+	case entity.ModelTypeChat:
+		modelID = tenant.LLMID
+	case entity.ModelTypeEmbedding:
+		modelID = tenant.EmbdID
+	case entity.ModelTypeRerank:
+		modelID = tenant.RerankID
+	case entity.ModelTypeSpeech2Text:
+		modelID = tenant.ASRID
+	case entity.ModelTypeImage2Text:
+		modelID = tenant.Img2TxtID
+	case entity.ModelTypeTTS:
+		modelID = *tenant.TTSID
+	case entity.ModelTypeOCR:
+		modelID = tenant.OCRID
+	default:
+		return "", fmt.Errorf("invalid model type: %s", modelType)
+	}
+
+	return modelID, nil
 }
 
 func (s *TenantService) GetModelInfo(tenantID string, defaultModel string, modelType string) (*string, *string, *string, bool, error) {

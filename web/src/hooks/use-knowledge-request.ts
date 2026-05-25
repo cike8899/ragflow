@@ -48,6 +48,7 @@ export const enum KnowledgeApiAction {
   FetchKnowledgeDetail = 'fetchKnowledgeDetail',
   FetchKnowledgeGraph = 'fetchKnowledgeGraph',
   FetchMetadata = 'fetchMetadata',
+  FetchMetadataKeys = 'fetchMetadataKeys',
   FetchKnowledgeList = 'fetchKnowledgeList',
   RemoveKnowledgeGraph = 'removeKnowledgeGraph',
 }
@@ -378,6 +379,24 @@ export function useFetchKnowledgeMetadata(kbIds: string[] = []) {
   return { data, loading };
 }
 
+export function useFetchKnowledgeMetadataKeys(kbIds: string[] = []) {
+  const sortedKbIds = useMemo(() => [...kbIds].sort(), [kbIds]);
+  const { data, isFetching: loading } = useQuery<string[]>({
+    queryKey: [KnowledgeApiAction.FetchMetadataKeys, sortedKbIds],
+    initialData: [],
+    enabled: sortedKbIds.length > 0,
+    gcTime: 0,
+    queryFn: async () => {
+      const { data } = await kbService.getMetaKeys({
+        kb_ids: sortedKbIds.join(','),
+      });
+      return data?.data ?? [];
+    },
+  });
+
+  return { data, loading };
+}
+
 export const useRemoveKnowledgeGraph = () => {
   const knowledgeBaseId = useKnowledgeBaseId();
 
@@ -405,16 +424,29 @@ export const useRemoveKnowledgeGraph = () => {
 
 export const useFetchKnowledgeList = (
   shouldFilterListWithoutDocument: boolean = false,
+  keywords = '',
 ): {
   list: IDataset[];
   loading: boolean;
 } => {
   const { data, isFetching: loading } = useQuery({
-    queryKey: [KnowledgeApiAction.FetchKnowledgeList],
+    queryKey: [
+      KnowledgeApiAction.FetchKnowledgeList,
+      shouldFilterListWithoutDocument,
+      keywords,
+    ],
     initialData: [],
     gcTime: 0, // https://tanstack.com/query/latest/docs/framework/react/guides/caching?from=reactQueryV3
     queryFn: async () => {
-      const { data } = await listDataset();
+      const { data } = await listDataset(
+        keywords
+          ? {
+              ext: {
+                keywords,
+              },
+            }
+          : undefined,
+      );
       const list = data?.data ?? [];
       return shouldFilterListWithoutDocument
         ? list.filter((x: IDataset) => x.chunk_count > 0)

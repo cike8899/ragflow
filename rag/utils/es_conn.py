@@ -69,8 +69,7 @@ class ESConnection(ESConnectionBase):
             index=index_names,
             body=query,
             timeout="600s",
-            track_total_hits=track_total_hits,
-            _source=True,
+            track_total_hits=track_total_hits
         )
 
     def _search_with_search_after(self, index_names: list[str], query: dict, offset: int, limit: int):
@@ -244,8 +243,10 @@ class ESConnection(ESConnectionBase):
                                   "mode": "avg", "numeric_type": "double"}
                 elif field.endswith("_int") or field.endswith("_flt"):
                     order_info = {"order": order, "unmapped_type": "float"}
+                elif field == "id":
+                    continue # id as "text", not a "keyword", order by it will cause error
                 else:
-                    order_info = {"order": order, "unmapped_type": "text"}
+                    order_info = {"order": order, "unmapped_type": "keyword"}
                 orders.append({field: order_info})
             s = s.sort(*orders)
         if agg_fields:
@@ -322,7 +323,7 @@ class ESConnection(ESConnectionBase):
             try:
                 res = []
                 r = self.es.bulk(index=index_name, operations=operations,
-                                 refresh=False, timeout="60s")
+                                 refresh="wait_for", timeout="60s")
                 if re.search(r"False", str(r["errors"]), re.IGNORECASE):
                     return res
 

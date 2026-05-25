@@ -1,9 +1,14 @@
 package models
 
-// Message represents a chat message with role
+// Message represents a chat message with role and content
+//
+// Content is interface{} to support different formats:
+//   - string: plain text message (e.g., "Hello")
+//   - []interface{}: multimodal content array where each element is map[string]interface{}
+//     (e.g., [{"type": "text", "text": "..."}, {"type": "image_url", "image_url": {"url": "..."}}])
 type Message struct {
-	Role    string
-	Content string
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"`
 }
 
 // EmbeddingModel interface for embedding models
@@ -12,22 +17,34 @@ type ModelDriver interface {
 
 	Name() string
 
-	// Chat sends a message and returns response
-	Chat(modelName, message *string, apiConfig *APIConfig, modelConfig *ChatConfig) (*ChatResponse, error)
-	// ChatWithMessages sends multiple messages with roles (system, user, etc.) and returns response
-	ChatWithMessages(modelName string, apiKey *string, messages []Message, modelConfig *ChatConfig) (string, error)
-	// ChatStreamlyWithSender sends a message and streams response via sender function (best performance, no channel)
-	ChatStreamlyWithSender(modelName, message *string, apiConfig *APIConfig, modelConfig *ChatConfig, sender func(*string, *string) error) error
-	// Encode encodes a list of texts into embeddings
-	Encode(modelName *string, texts []string, apiConfig *APIConfig, embeddingConfig *EmbeddingConfig) ([][]float64, error)
+	// ChatWithMessages sends multiple messages synchronously
+	ChatWithMessages(modelName string, messages []Message, apiConfig *APIConfig, chatModelConfig *ChatConfig) (*ChatResponse, error)
+	// ChatStreamlyWithSender sends multiple messages asynchronously
+	ChatStreamlyWithSender(modelName string, messages []Message, apiConfig *APIConfig, modelConfig *ChatConfig, sender func(*string, *string) error) error
+	// Embed a list of texts into embeddings
+	Embed(modelName *string, texts []string, apiConfig *APIConfig, embeddingConfig *EmbeddingConfig) ([]EmbeddingData, error)
 	// Rerank calculates similarity scores between query and texts
-	Rerank(modelName *string, query string, texts []string, apiConfig *APIConfig) ([]float64, error)
+	Rerank(modelName *string, query string, documents []string, apiConfig *APIConfig, rerankConfig *RerankConfig) (*RerankResponse, error)
+	// TranscribeAudio transcribe audio
+	TranscribeAudio(modelName *string, file *string, apiConfig *APIConfig, asrConfig *ASRConfig) (*ASRResponse, error)
+	TranscribeAudioWithSender(modelName *string, file *string, apiConfig *APIConfig, asrConfig *ASRConfig, sender func(*string, *string) error) error
+	// AudioSpeech convert text to audio
+	AudioSpeech(modelName *string, audioContent *string, apiConfig *APIConfig, ttsConfig *TTSConfig) (*TTSResponse, error)
+	AudioSpeechWithSender(modelName *string, audioContent *string, apiConfig *APIConfig, ttsConfig *TTSConfig, sender func(*string, *string) error) error
+	// OCRFile OCR file
+	OCRFile(modelName *string, content []byte, url *string, apiConfig *APIConfig, ocrConfig *OCRConfig) (*OCRFileResponse, error)
+	// ParseFile parse file
+	ParseFile(modelName *string, content []byte, url *string, apiConfig *APIConfig, parseFileConfig *ParseFileConfig) (*ParseFileResponse, error)
 	// ListModels List supported models
 	ListModels(apiConfig *APIConfig) ([]string, error)
 
 	Balance(apiConfig *APIConfig) (map[string]interface{}, error)
 
 	CheckConnection(apiConfig *APIConfig) error
+
+	ListTasks(apiConfig *APIConfig) ([]ListTaskStatus, error)
+
+	ShowTask(taskID string, apiConfig *APIConfig) (*TaskResponse, error)
 }
 
 type ChatResponse struct {
@@ -35,17 +52,67 @@ type ChatResponse struct {
 	ReasonContent *string `json:"reason_content"`
 }
 
+type EmbeddingData struct {
+	Embedding []float64 `json:"embedding"`
+	Index     int       `json:"index"`
+}
+
+type RerankResult struct {
+	Index          int     `json:"index"`
+	RelevanceScore float64 `json:"relevance_score"`
+}
+
+type RerankResponse struct {
+	Data []RerankResult `json:"data"`
+}
+
+type ASRResponse struct {
+	Text string `json:"text"`
+}
+
+type TTSResponse struct {
+	Audio []byte `json:"audio"`
+}
+
+type OCRFileResponse struct {
+	Text *string `json:"text"`
+}
+
+type ParseFileResponse struct {
+	TaskID string `json:"task_id"`
+}
+
+type ListTaskStatus struct {
+	TaskID string `json:"task_id"`
+	Status string `json:"status"`
+}
+
+type TaskSegment struct {
+	Index   int    `json:"index"`
+	Content string `json:"content"`
+}
+
+type TaskResponse struct {
+	Segments []TaskSegment `json:"segments"`
+}
+
 // URLSuffix represents the URL suffixes for different API endpoints
 type URLSuffix struct {
-	Chat        string `json:"chat"`
-	AsyncChat   string `json:"async_chat"`
-	AsyncResult string `json:"async_result"`
-	Embedding   string `json:"embedding"`
-	Rerank      string `json:"rerank"`
-	Models      string `json:"models"`
-	Balance     string `json:"balance"`
-	Files       string `json:"files"`
-	Status      string `json:"status"`
+	Chat          string `json:"chat"`
+	AsyncChat     string `json:"async_chat"`
+	AsyncResult   string `json:"async_result"`
+	Embedding     string `json:"embedding"`
+	Rerank        string `json:"rerank"`
+	TTS           string `json:"tts"`
+	ASR           string `json:"asr"`
+	OCR           string `json:"ocr"`
+	DocumentParse string `json:"doc_parse"`
+	Models        string `json:"models"`
+	Balance       string `json:"balance"`
+	Files         string `json:"files"`
+	Status        string `json:"status"`
+	Tasks         string `json:"tasks"`
+	Task          string `json:"task"`
 }
 
 type ChatConfig struct {
@@ -68,6 +135,26 @@ type APIConfig struct {
 }
 
 type EmbeddingConfig struct {
+	Dimension int
+}
+
+type RerankConfig struct {
+	TopN int
+}
+
+type ASRConfig struct {
+	Params map[string]interface{} `json:"params"`
+}
+
+type TTSConfig struct {
+	Format string                 `json:"format"`
+	Params map[string]interface{} `json:"params"`
+}
+
+type OCRConfig struct {
+}
+
+type ParseFileConfig struct {
 }
 
 // EmbeddingModel wraps a ModelDriver with embedding-specific configuration
@@ -75,14 +162,16 @@ type EmbeddingModel struct {
 	ModelDriver ModelDriver
 	ModelName   *string
 	APIConfig   *APIConfig
+	MaxTokens   int // Max input tokens for the embedding model, used for text truncation
 }
 
 // NewEmbeddingModel creates a new EmbeddingModel
-func NewEmbeddingModel(driver ModelDriver, modelName *string, apiConfig *APIConfig) *EmbeddingModel {
+func NewEmbeddingModel(driver ModelDriver, modelName *string, apiConfig *APIConfig, maxTokens int) *EmbeddingModel {
 	return &EmbeddingModel{
 		ModelDriver: driver,
 		ModelName:   modelName,
 		APIConfig:   apiConfig,
+		MaxTokens:   maxTokens,
 	}
 }
 
@@ -103,8 +192,8 @@ func NewRerankModel(driver ModelDriver, modelName *string, apiConfig *APIConfig)
 }
 
 // Rerank calculates similarity between query and texts
-func (r *RerankModel) Rerank(query string, texts []string, apiConfig *APIConfig) ([]float64, error) {
-	return r.ModelDriver.Rerank(r.ModelName, query, texts, apiConfig)
+func (r *RerankModel) Rerank(query string, texts []string, apiConfig *APIConfig, rerankConfig *RerankConfig) (*RerankResponse, error) {
+	return r.ModelDriver.Rerank(r.ModelName, query, texts, apiConfig, rerankConfig)
 }
 
 // ChatModel wraps a ModelDriver with chat-specific configuration

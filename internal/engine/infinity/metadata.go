@@ -25,14 +25,17 @@ import (
 	"strings"
 
 	infinity "github.com/infiniflow/infinity-go-sdk"
-	"ragflow/internal/logger"
+	"ragflow/internal/common"
 	"ragflow/internal/utility"
 
 	"go.uber.org/zap"
 )
 
-// CreateMetadata creates the document metadata table/index
-func (e *infinityEngine) CreateMetadata(ctx context.Context, indexName string) error {
+// CreateMetadataStore creates a metadata table in Infinity
+// tenantID is the tenant identifier used to build the table name
+func (e *infinityEngine) CreateMetadataStore(ctx context.Context, tenantID string) error {
+	tableName := buildMetadataTableName(tenantID)
+
 	// Get database
 	db, err := e.client.conn.GetDatabase(e.client.dbName)
 	if err != nil {
@@ -40,12 +43,12 @@ func (e *infinityEngine) CreateMetadata(ctx context.Context, indexName string) e
 	}
 
 	// Check if table already exists
-	exists, err := e.TableExists(ctx, indexName)
+	exists, err := e.tableExists(ctx, tableName)
 	if err != nil {
 		return fmt.Errorf("Failed to check if table exists: %w", err)
 	}
 	if exists {
-		return fmt.Errorf("metadata table '%s' already exists", indexName)
+		return fmt.Errorf("metadata table '%s' already exists", tableName)
 	}
 
 	// Use configured doc_meta mapping file
@@ -65,30 +68,29 @@ func (e *infinityEngine) CreateMetadata(ctx context.Context, indexName string) e
 	var columns infinity.TableSchema
 	for fieldName, fieldInfo := range schema {
 		col := infinity.ColumnDefinition{
-			Name:    fieldName,
+			Name:     fieldName,
 			DataType: fieldInfo.Type,
-			Default: fieldInfo.Default,
-			// Comment: fieldInfo.Comment,
+			Default:  fieldInfo.Default,
 		}
 		columns = append(columns, &col)
 	}
 
 	// Create table
-	_, err = db.CreateTable(indexName, columns, infinity.ConflictTypeIgnore)
+	_, err = db.CreateTable(tableName, columns, infinity.ConflictTypeIgnore)
 	if err != nil {
 		return fmt.Errorf("Failed to create doc meta table: %w", err)
 	}
-	logger.Debug("Infinity created doc meta table", zap.String("tableName", indexName))
+	common.Debug("Infinity created doc meta table", zap.String("tableName", tableName))
 
 	// Get table for creating indexes
-	table, err := db.GetTable(indexName)
+	table, err := db.GetTable(tableName)
 	if err != nil {
 		return fmt.Errorf("Failed to get table: %w", err)
 	}
 
 	// Create secondary index on id
 	_, err = table.CreateIndex(
-		fmt.Sprintf("idx_%s_id", indexName),
+		fmt.Sprintf("idx_%s_id", tableName),
 		infinity.NewIndexInfo("id", infinity.IndexTypeSecondary, nil),
 		infinity.ConflictTypeIgnore,
 		"",
@@ -99,7 +101,7 @@ func (e *infinityEngine) CreateMetadata(ctx context.Context, indexName string) e
 
 	// Create secondary index on kb_id
 	_, err = table.CreateIndex(
-		fmt.Sprintf("idx_%s_kb_id", indexName),
+		fmt.Sprintf("idx_%s_kb_id", tableName),
 		infinity.NewIndexInfo("kb_id", infinity.IndexTypeSecondary, nil),
 		infinity.ConflictTypeIgnore,
 		"",
@@ -112,12 +114,11 @@ func (e *infinityEngine) CreateMetadata(ctx context.Context, indexName string) e
 }
 
 // InsertMetadata inserts document metadata into tenant's metadata table
-// Table name format: ragflow_doc_meta_{tenant_id}
 // Auto-create the table if it doesn't exist
 // Replace existing metadata with same id and kb_id
 func (e *infinityEngine) InsertMetadata(ctx context.Context, metadata []map[string]interface{}, tenantID string) ([]string, error) {
-	tableName := fmt.Sprintf("ragflow_doc_meta_%s", tenantID)
-	logger.Info("InfinityConnection.InsertMetadata called", zap.String("tableName", tableName), zap.Int("metaCount", len(metadata)))
+	tableName := buildMetadataTableName(tenantID)
+	common.Info("InfinityConnection.InsertMetadata called", zap.String("tableName", tableName), zap.Int("metaCount", len(metadata)))
 
 	db, err := e.client.conn.GetDatabase(e.client.dbName)
 	if err != nil {
@@ -133,7 +134,7 @@ func (e *infinityEngine) InsertMetadata(ctx context.Context, metadata []map[stri
 		}
 
 		// Create metadata table
-		if createErr := e.CreateMetadata(ctx, tableName); createErr != nil {
+		if createErr := e.CreateMetadataStore(ctx, tenantID); createErr != nil {
 			return nil, fmt.Errorf("Failed to create metadata table: %w", createErr)
 		}
 
@@ -167,12 +168,12 @@ func (e *infinityEngine) InsertMetadata(ctx context.Context, metadata []map[stri
 			idList[i] = fmt.Sprintf("(id = %s AND kb_id = %s)", docID, kbID)
 		}
 		filter := strings.Join(idList, " OR ")
-		logger.Debug(fmt.Sprintf("Deleting existing metadata with filter: %s", filter))
+		common.Debug(fmt.Sprintf("Deleting existing metadata with filter: %s", filter))
 		delResp, delErr := table.Delete(filter)
 		if delErr != nil {
-			logger.Warn(fmt.Sprintf("Failed to delete existing metadata: %v", delErr))
+			common.Warn(fmt.Sprintf("Failed to delete existing metadata: %v", delErr))
 		} else if delResp.DeletedRows > 0 {
-			logger.Info(fmt.Sprintf("Deleted %d existing metadata entries", delResp.DeletedRows))
+			common.Info(fmt.Sprintf("Deleted %d existing metadata entries", delResp.DeletedRows))
 		}
 	}
 
@@ -182,17 +183,16 @@ func (e *infinityEngine) InsertMetadata(ctx context.Context, metadata []map[stri
 		return nil, fmt.Errorf("Failed to insert metadata: %w", err)
 	}
 
-	logger.Info("InfinityConnection.InsertMetadata result", zap.String("tableName", tableName), zap.Int("metaCount", len(metadata)))
+	common.Info("InfinityConnection.InsertMetadata result", zap.String("tableName", tableName), zap.Int("metaCount", len(metadata)))
 	return []string{}, nil
 }
 
 // UpdateMetadata updates or inserts document metadata in tenant's metadata table.
-// If a row with the given docID and kbID exists, it merges the new metadata with existing.
+// If a row with the given docID and datasetID exists, it merges the new metadata with existing.
 // If no row exists, it inserts a new row.
-// Table name format: ragflow_doc_meta_{tenant_id}
-func (e *infinityEngine) UpdateMetadata(ctx context.Context, docID string, kbID string, metaFields map[string]interface{}, tenantID string) error {
-	tableName := fmt.Sprintf("ragflow_doc_meta_%s", tenantID)
-	logger.Info("InfinityConnection.UpdateMetadata called", zap.String("tableName", tableName), zap.String("docID", docID), zap.String("kbID", kbID))
+func (e *infinityEngine) UpdateMetadata(ctx context.Context, docID string, datasetID string, metaFields map[string]interface{}, tenantID string) error {
+	tableName := buildMetadataTableName(tenantID)
+	common.Info("InfinityConnection.UpdateMetadata called", zap.String("tableName", tableName), zap.String("docID", docID), zap.String("datasetID", datasetID))
 
 	db, err := e.client.conn.GetDatabase(e.client.dbName)
 	if err != nil {
@@ -204,10 +204,10 @@ func (e *infinityEngine) UpdateMetadata(ctx context.Context, docID string, kbID 
 		return fmt.Errorf("failed to get metadata table %s: %w", tableName, err)
 	}
 
-	// Build filter to find existing row by docID and kbID
+	// Build filter to find existing row by docID and datasetID
 	escapedDocID := strings.ReplaceAll(docID, "'", "''")
-	escapedKbID := strings.ReplaceAll(kbID, "'", "''")
-	filter := fmt.Sprintf("id = '%s' AND kb_id = '%s'", escapedDocID, escapedKbID)
+	escapedDatasetID := strings.ReplaceAll(datasetID, "'", "''")
+	filter := fmt.Sprintf("id = '%s' AND kb_id = '%s'", escapedDocID, escapedDatasetID)
 
 	// Query existing metadata using the chainable API
 	queryTable := table.Output([]string{"id", "kb_id", "meta_fields"}).Filter(filter).Limit(1).Offset(0)
@@ -216,7 +216,7 @@ func (e *infinityEngine) UpdateMetadata(ctx context.Context, docID string, kbID 
 	result, err := queryTable.ToResult()
 	rowExists := false
 	if err != nil {
-		logger.Warn(fmt.Sprintf("Failed to query existing metadata: %v", err))
+		common.Warn(fmt.Sprintf("Failed to query existing metadata: %v", err))
 		// If query fails, treat as not exists and insert
 	} else {
 		// Get results - ToResult returns *infinity.QueryResult
@@ -234,7 +234,7 @@ func (e *infinityEngine) UpdateMetadata(ctx context.Context, docID string, kbID 
 					switch v := existingMetaFieldsVal.(type) {
 					case string:
 						if err := json.Unmarshal([]byte(v), &existingMetaFields); err != nil {
-							logger.Warn(fmt.Sprintf("Failed to parse existing meta_fields: %v", err))
+							common.Warn(fmt.Sprintf("Failed to parse existing meta_fields: %v", err))
 							existingMetaFields = make(map[string]interface{})
 						}
 					case map[string]interface{}:
@@ -261,7 +261,7 @@ func (e *infinityEngine) UpdateMetadata(ctx context.Context, docID string, kbID 
 
 	if rowExists {
 		// Row exists: update it with merged metadata
-		logger.Info(fmt.Sprintf("UpdateMetadata: updating existing row, table=%s, filter=%s, newValue=%v", tableName, filter, updatedFields))
+		common.Info(fmt.Sprintf("UpdateMetadata: updating existing row, table=%s, filter=%s, newValue=%v", tableName, filter, updatedFields))
 		_, err = table.Update(filter, updatedFields)
 		if err != nil {
 			return fmt.Errorf("failed to update metadata: %w", err)
@@ -270,17 +270,85 @@ func (e *infinityEngine) UpdateMetadata(ctx context.Context, docID string, kbID 
 		// Row doesn't exist: insert new row
 		insertFields := map[string]interface{}{
 			"id":          docID,
-			"kb_id":       kbID,
+			"kb_id":       datasetID,
 			"meta_fields": utility.ConvertMapToJSONString(metaFields),
 		}
-		logger.Info(fmt.Sprintf("UpdateMetadata: inserting new row, table=%s, newValue=%v", tableName, insertFields))
+		common.Info(fmt.Sprintf("UpdateMetadata: inserting new row, table=%s, newValue=%v", tableName, insertFields))
 		_, err = table.Insert(insertFields)
 		if err != nil {
 			return fmt.Errorf("failed to insert metadata: %w", err)
 		}
 	}
 
-	logger.Info("InfinityConnection.UpdateMetadata completes", zap.String("tableName", tableName), zap.String("docID", docID))
+	common.Info("InfinityConnection.UpdateMetadata completes", zap.String("tableName", tableName), zap.String("docID", docID))
 	return nil
 }
 
+// DeleteMetadata deletes metadata from tenant's metadata table by condition
+func (e *infinityEngine) DeleteMetadata(ctx context.Context, condition map[string]interface{}, tenantID string) (int64, error) {
+	tableName := buildMetadataTableName(tenantID)
+
+	db, err := e.client.conn.GetDatabase(e.client.dbName)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get database: %w", err)
+	}
+
+	table, err := db.GetTable(tableName)
+	if err != nil {
+		common.Warn(fmt.Sprintf("Metadata table %s does not exist, skipping delete", tableName))
+		return 0, nil
+	}
+
+	// Get table columns for building filter
+	clmns := make(map[string]struct {
+		Type    string
+		Default interface{}
+	})
+	colsResp, err := table.ShowColumns()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get columns: %w", err)
+	}
+	result, ok := colsResp.(*infinity.QueryResult)
+	if ok {
+		if nameArr, ok := result.Data["name"]; ok {
+			if typeArr, ok := result.Data["type"]; ok {
+				if defArr, ok := result.Data["default"]; ok {
+					for i := 0; i < len(nameArr); i++ {
+						colName, _ := nameArr[i].(string)
+						colType, _ := typeArr[i].(string)
+						var colDefault interface{}
+						if i < len(defArr) {
+							colDefault = defArr[i]
+						}
+						clmns[colName] = struct {
+							Type    string
+							Default interface{}
+						}{colType, colDefault}
+					}
+				}
+			}
+		}
+	}
+
+	// Build filter from condition
+	filter := buildFilterFromCondition(condition, clmns)
+
+	delResp, err := table.Delete(filter)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete metadata: %w", err)
+	}
+
+	return delResp.DeletedRows, nil
+}
+
+// DropMetadataStore drops a metadata table from Infinity
+func (e *infinityEngine) DropMetadataStore(ctx context.Context, tenantID string) error {
+	tableName := buildMetadataTableName(tenantID)
+	return e.dropTable(ctx, tableName)
+}
+
+// MetadataStoreExists checks if a metadata table exists in Infinity
+func (e *infinityEngine) MetadataStoreExists(ctx context.Context, tenantID string) (bool, error) {
+	tableName := buildMetadataTableName(tenantID)
+	return e.tableExists(ctx, tableName)
+}

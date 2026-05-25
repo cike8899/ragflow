@@ -5,6 +5,7 @@ import { Separator } from '@/components/ui/separator';
 import { DatasetMetadata } from '@/constants/chat';
 import { useSetModalState } from '@/hooks/common-hooks';
 import { useFetchChat, useUpdateChat } from '@/hooks/use-chat-request';
+import { useFindLlmByUuid } from '@/hooks/use-llm-request';
 import { cn } from '@/lib/utils';
 import {
   removeUselessFieldsFromValues,
@@ -30,6 +31,7 @@ export function ChatSettings({ hasSingleChatBox }: ChatSettingsProps) {
   const formSchema = useChatSettingSchema();
   const { data } = useFetchChat();
   const { updateChat, loading } = useUpdateChat();
+  const findLlmByUuid = useFindLlmByUuid();
   const { id } = useParams();
   const { t } = useTranslation();
 
@@ -57,6 +59,10 @@ export function ChatSettings({ hasSingleChatBox }: ChatSettingsProps) {
         reasoning: false,
         cross_languages: [],
         toc_enhance: false,
+        reference_metadata: {
+          include: false,
+          fields: undefined,
+        },
       },
       top_n: 8,
       similarity_threshold: 0.2,
@@ -74,6 +80,22 @@ export function ChatSettings({ hasSingleChatBox }: ChatSettingsProps) {
       values,
       'llm_setting.',
     );
+    const referenceMetadata = nextValues?.prompt_config?.reference_metadata;
+    if (
+      referenceMetadata &&
+      Array.isArray(referenceMetadata.fields) &&
+      referenceMetadata.fields.length === 0
+    ) {
+      referenceMetadata.fields = undefined;
+    }
+
+    // Add model_type to llm_setting based on the selected llm_id
+    if (nextValues.llm_id) {
+      nextValues.llm_setting = {
+        ...nextValues.llm_setting,
+        model_type: findLlmByUuid(nextValues.llm_id)?.model_type || 'chat',
+      };
+    }
 
     updateChat({
       chatId: id!,
@@ -101,8 +123,20 @@ export function ChatSettings({ hasSingleChatBox }: ChatSettingsProps) {
     const llmSettingEnabledValues = setLLMSettingEnabledValues(
       data.llm_setting,
     );
+    const referenceMetadata = data?.prompt_config?.reference_metadata;
+    const normalizedReferenceMetadata =
+      referenceMetadata &&
+      Array.isArray(referenceMetadata.fields) &&
+      referenceMetadata.fields.length === 0
+        ? { ...referenceMetadata, fields: undefined }
+        : referenceMetadata;
+
     const nextData = {
       ...data,
+      prompt_config: {
+        ...data.prompt_config,
+        reference_metadata: normalizedReferenceMetadata,
+      },
       ...llmSettingEnabledValues,
     };
 
