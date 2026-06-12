@@ -27,6 +27,11 @@ from api.db.services.tenant_model_service import TenantModelService
 logger = logging.getLogger(__name__)
 
 
+def _factory_model_types(llm: dict) -> list[str]:
+    model_type = llm.get("model_type")
+    if isinstance(model_type, list):
+        return model_type
+    return [model_type] if model_type else []
 def _decode_api_key_config(raw_api_key: str) -> tuple[str, bool | None, str | None]:
     if not raw_api_key:
         return raw_api_key, None, None
@@ -210,13 +215,15 @@ def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum
         if model_obj.status == ActiveStatusEnum.INACTIVE.value:
             raise LookupError(f"Model {model_name} is disabled.")
 
+        model_extra = json.loads(model_obj.extra) if model_obj.extra else {}
         model_config = {
             "llm_factory": provider_obj.provider_name,
             "api_key": api_key,
             "llm_name": model_obj.model_name,
             "api_base": extra_fields.get("base_url", ""),
             "model_type": model_obj.model_type,
-            "is_tools": extra_fields.get("is_tools", is_tool)
+            "is_tools": model_extra.get("is_tools", is_tool),
+            "max_tokens": model_extra.get("max_tokens", 8192),
         }
         if api_key_payload is not None:
             model_config["api_key_payload"] = api_key_payload
@@ -235,13 +242,16 @@ def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum
         if not llm_list:
             raise LookupError(f"Model config not found: {model_name}")
         llm_info = llm_list[0]
+        if model_type_val not in _factory_model_types(llm_info):
+            raise LookupError(f"Model {model_name} is not a {model_type_val} model.")
         model_config = {
             "llm_factory": provider_obj.provider_name,
             "api_key": api_key,
             "llm_name": llm_info["llm_name"],
             "api_base": extra_fields.get("base_url", ""),
-            "model_type": llm_info["model_type"],
-            "is_tools": llm_info.get("is_tools", is_tool)
+            "model_type": model_type_val,
+            "is_tools": llm_info.get("is_tools", is_tool),
+            "max_tokens": llm_info.get("max_tokens", 8192),
         }
         if api_key_payload is not None:
             model_config["api_key_payload"] = api_key_payload
@@ -284,7 +294,7 @@ def get_model_type_by_name(tenant_id: str, model_name: str):
         llm_list = [llm for llm in fac_list[0]["llm"] if llm["llm_name"] == pure_model_name]
         if not llm_list:
             raise LookupError(f"Model {pure_model_name} not found for model {model_name}.")
-        return [llm_list[0]["model_type"]]
+        return _factory_model_types(llm_list[0])
     return [model_obj.model_type for model_obj in model_objs]
 
 
