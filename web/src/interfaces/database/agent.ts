@@ -269,6 +269,7 @@ export interface IAgentLogResponse {
   reference: IReference;
   name: string;
   version_title: string;
+  is_new?: boolean;
 }
 export interface IAgentLogsResponse {
   total: number;

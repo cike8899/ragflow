@@ -33,7 +33,13 @@ import agentService, {
   uploadAgentFile,
 } from '@/services/agent-service';
 import { buildMessageListWithUuid } from '@/utils/chat';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  InfiniteData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useDebounce } from 'ahooks';
 import { get, isEmpty, set } from 'lodash';
 import { useCallback, useState } from 'react';
@@ -77,6 +83,13 @@ export const enum AgentApiAction {
   FetchAgentTags = 'fetchAgentTags',
   UpdateAgentTags = 'updateAgentTags',
 }
+
+export const AgentKeys = {
+  sessions: (canvasId?: string, keywords?: string) =>
+    [AgentApiAction.FetchSessionsByCanvasId, canvasId, keywords] as const,
+};
+
+const SessionPageSize = 30;
 
 export const useFetchAgentTemplates = () => {
   const { data } = useQuery<IFlowTemplate[]>({
@@ -703,34 +716,60 @@ export const useFetchAgentLog = (searchParams: IAgentLogsRequest) => {
   return { data, loading };
 };
 
-export const useFetchSessionsByCanvasId = () => {
+export const useFetchSessionsByCanvasId = (params?: { keywords?: string }) => {
   const { id: canvasId } = useParams();
   const { data: tenantInfo } = useFetchTenantInfo();
 
-  const { data, isFetching: loading } = useQuery<IAgentLogsResponse>({
-    queryKey: [AgentApiAction.FetchSessionsByCanvasId, canvasId],
-    initialData: { total: 0, sessions: [] } as IAgentLogsResponse,
+  const {
+    data,
+    isFetching: loading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<
+    IAgentLogsResponse,
+    Error,
+    InfiniteData<IAgentLogsResponse>
+  >({
+    queryKey: AgentKeys.sessions(canvasId, params?.keywords),
+    initialPageParam: 1,
     gcTime: 0,
     enabled: !!canvasId && !isEmpty(tenantInfo),
-    queryFn: async () => {
+    queryFn: async ({ pageParam }) => {
+      const page = pageParam as number;
       if (!canvasId) {
         return { total: 0, sessions: [] };
       }
 
       const { data } = await fetchAgentLogsByCanvasId(canvasId, {
-        page: 1,
-        page_size: 100,
+        page,
+        page_size: SessionPageSize,
         exp_user_id: tenantInfo.tenant_id,
+        keywords: params?.keywords,
       });
 
       return { total: data?.total ?? 0, sessions: data?.data ?? [] };
     },
+    getNextPageParam: (lastPage, allPages) => {
+      const loadedCount = allPages.reduce(
+        (sum, page) => sum + page.sessions.length,
+        0,
+      );
+      if (lastPage.sessions.length === 0 || loadedCount >= lastPage.total) {
+        return undefined;
+      }
+      return allPages.length + 1;
+    },
   });
 
   return {
-    data: data?.sessions ?? [],
+    data: data?.pages.flatMap((page) => page.sessions) ?? [],
     loading,
-    total: data?.total ?? 0,
+    total: data?.pages[0]?.total ?? 0,
+    pageCount: data?.pages.length ?? 0,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
   };
 };
 
@@ -969,9 +1008,45 @@ export function useCreateAgentSession() {
     mutationFn: async (payload: { id: string; name: string }) => {
       const { data } = await createAgentSession(payload);
 
-      if (data.code === 0) {
-        queryClient.invalidateQueries({
-          queryKey: [AgentApiAction.FetchSessionsByCanvasId],
+      if (data.code === 0 && data.data) {
+        const newSession = data.data as IAgentLogResponse;
+
+        // Optimistically prepend the new session to the first page of every
+        // cached session list for this canvas, then drop the remaining pages.
+        // When the user scrolls again the next pages will be fetched fresh,
+        // which avoids refetching pages 1..N just because a new session was
+        // created at the top.
+        const queries = queryClient.getQueriesData<
+          InfiniteData<IAgentLogsResponse>
+        >({
+          predicate: (query) => {
+            const [action, queryCanvasId] = query.queryKey;
+            return (
+              action === AgentApiAction.FetchSessionsByCanvasId &&
+              queryCanvasId === payload.id
+            );
+          },
+        });
+
+        queries.forEach(([queryKey, cached]) => {
+          if (!cached) return;
+
+          queryClient.setQueryData<InfiniteData<IAgentLogsResponse>>(queryKey, {
+            pageParams: [1],
+            pages:
+              cached.pages.length > 0
+                ? [
+                    {
+                      ...cached.pages[0],
+                      sessions: [newSession, ...cached.pages[0].sessions].slice(
+                        0,
+                        SessionPageSize,
+                      ),
+                      total: cached.pages[0].total + 1,
+                    },
+                  ]
+                : [{ total: 1, sessions: [newSession] }],
+          });
         });
       }
 
@@ -1001,8 +1076,30 @@ export function useDeleteAgentSession() {
       const { data } = await deleteAgentSession(canvasId, sessionId);
 
       if (data.code === 0) {
-        queryClient.invalidateQueries({
-          queryKey: [AgentApiAction.FetchSessionsByCanvasId],
+        const queries = queryClient.getQueriesData<
+          InfiniteData<IAgentLogsResponse>
+        >({
+          predicate: (query) => {
+            const [action, queryCanvasId] = query.queryKey;
+            return (
+              action === AgentApiAction.FetchSessionsByCanvasId &&
+              queryCanvasId === canvasId
+            );
+          },
+        });
+
+        queries.forEach(([queryKey, cached]) => {
+          if (!cached) return;
+
+          queryClient.setQueryData<InfiniteData<IAgentLogsResponse>>(queryKey, {
+            ...cached,
+            pageParams: cached.pageParams,
+            pages: cached.pages.map((page) => ({
+              ...page,
+              sessions: page.sessions.filter((s) => s.id !== sessionId),
+              total: Math.max(0, page.total - 1),
+            })),
+          });
         });
       }
 

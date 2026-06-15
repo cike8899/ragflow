@@ -2,6 +2,7 @@ import { Toaster as Sonner } from '@/components/ui/sonner';
 import { Toaster } from '@/components/ui/toaster';
 import { changeLanguageAsync } from '@/locales/config';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { configResponsive } from 'ahooks';
 import dayjs from 'dayjs';
 import 'dayjs/locale/ar';
@@ -92,6 +93,7 @@ const RootProvider = ({ children }: React.PropsWithChildren) => {
         >
           <Root>{children}</Root>
         </ThemeProvider>
+        <ReactQueryDevtools initialIsOpen={false} />
       </QueryClientProvider>
     </TooltipProvider>
   );

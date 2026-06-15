@@ -18,7 +18,7 @@ import { SessionList } from './components/session-list';
 import { useExploreUrlParams } from './hooks/use-explore-url-params';
 
 export default function AgentExplore() {
-  const { sessionId, setSessionId } = useExploreUrlParams();
+  const { sessionId, isNew, setSessionId } = useExploreUrlParams();
   const { navigateToAgent } = useNavigatePage();
   const { t } = useTranslation();
   const { id } = useParams();
@@ -62,6 +62,7 @@ export default function AgentExplore() {
         <div className="w-[296px] border-r min-w-0">
           <SessionList
             selectedSessionId={sessionId}
+            selectedIsNew={!!isNew}
             onSelectSession={handleSessionSelect}
           />
         </div>

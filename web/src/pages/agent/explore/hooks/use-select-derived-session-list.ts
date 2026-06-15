@@ -1,16 +1,31 @@
 import { useFetchSessionsByCanvasId } from '@/hooks/use-agent-request';
 import { IAgentLogResponse } from '@/interfaces/database/agent';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useExploreUrlParams } from './use-explore-url-params';
 
-export const useSelectDerivedSessionList = () => {
-  const [list, setList] = useState<
-    Array<IAgentLogResponse & { is_new?: boolean }>
-  >([]);
+export const useSelectDerivedSessionList = (keywords?: string) => {
+  const [temporarySession, setTemporarySession] = useState<
+    (IAgentLogResponse & { is_new?: boolean }) | null
+  >(null);
 
-  const { data: sessions = [], loading } = useFetchSessionsByCanvasId();
+  const {
+    data: sessions = [],
+    loading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    pageCount,
+  } = useFetchSessionsByCanvasId({ keywords });
 
-  const { setSessionId } = useExploreUrlParams();
+  const { sessionId, setSessionId } = useExploreUrlParams();
+
+  // Remove the local temporary session once a real session is selected,
+  // so the newly created session from the server replaces the placeholder.
+  useEffect(() => {
+    if (temporarySession && sessionId) {
+      setTemporarySession(null);
+    }
+  }, [temporarySession, sessionId]);
 
   const addTemporarySession = useCallback(() => {
     const now = Date.now() / 1000;
@@ -28,29 +43,31 @@ export const useSelectDerivedSessionList = () => {
       source: '',
       user_id: '',
       dsl: '',
-      reference: {},
+      reference: {} as import('@/interfaces/database/chat').IReference,
+      name: '',
+      version_title: '',
       is_new: true,
     };
 
-    setList([tempSession, ...sessions]);
-
+    setTemporarySession(tempSession);
     setSessionId('', true);
-  }, [sessions, setSessionId]);
+  }, [setSessionId]);
 
   const removeTemporarySession = useCallback((sessionId: string) => {
-    setList((prevList) => {
-      return prevList.filter((session) => session.id !== sessionId);
-    });
+    setTemporarySession((prev) => (prev?.id === sessionId ? null : prev));
   }, []);
 
-  // Sync server data to local state
-  useEffect(() => {
-    setList(sessions);
-  }, [sessions]);
+  const derivedSessions = useMemo(() => {
+    return temporarySession ? [temporarySession, ...sessions] : sessions;
+  }, [temporarySession, sessions]);
 
   return {
-    sessions: list,
+    sessions: derivedSessions,
     loading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    pageCount,
     addTemporarySession,
     removeTemporarySession,
   };

@@ -57,10 +57,10 @@ const clampZoom = (scale: number, direction: 1 | -1): number => {
 // Word document preview component.
 // Uses @extend-ai/react-docx for canvas-based page-level rendering.
 // Falls back to an unsupported notice for legacy .doc (non-ZIP) payloads.
-export const DocPreviewer: React.FC<DocPreviewerProps> = ({
+export const DocPreviewer: React.FC<DocPreviewerProps> = function DocPreviewer({
   className,
   url,
-}) => {
+}) {
   const editor = useDocxEditor({ initialFileName: 'document.docx' });
   const { importDocxFile, status, totalPages } = editor;
   const [loading, setLoading] = useState(false);
