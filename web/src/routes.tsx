@@ -43,8 +43,12 @@ export enum Routes {
   Plan = '/plan',
   Model = '/model',
   Prompt = '/prompt',
+  CompilationTemplates = '/compilation-templates',
+  CompilationTemplate = `${CompilationTemplates}/:id`,
+  CompilationTemplatesCreateNext = '/compilation-templates/create-next',
   DataSource = '/data-source',
   DataSourceDetailPage = '/data-source-detail-page',
+  ChatChannel = '/chat-channel',
   ProfileMcp = `${ProfileSetting}${Mcp}`,
   ProfileTeam = `${ProfileSetting}${Team}`,
   ProfilePlan = `${ProfileSetting}${Plan}`,
@@ -59,6 +63,7 @@ export enum Routes {
   Result = '/result',
   ResultView = `${Chunk}${Result}`,
   KnowledgeGraph = '/knowledge-graph',
+  Compilation = '/compilation',
   AgentLogPage = '/agent-log-page',
   AgentShare = '/agent/share',
   ChatShare = `${Chats}/share`,
@@ -294,6 +299,15 @@ const routeConfigOptions = [
             path: `${Routes.UserSetting}${Routes.DataSource}`,
             Component: () => import('@/pages/user-setting/data-source'),
           },
+          {
+            path: `${Routes.UserSetting}${Routes.ChatChannel}`,
+            Component: () => import('@/pages/user-setting/chat-channel'),
+          },
+          {
+            path: `${Routes.UserSetting}${Routes.CompilationTemplates}`,
+            Component: () =>
+              import('@/pages/user-setting/compilation-templates'),
+          },
         ],
       },
       {
@@ -305,8 +319,30 @@ const routeConfigOptions = [
     ],
   },
   {
+    path: Routes.CompilationTemplate,
+    layout: false,
+    Component: () =>
+      import('@/pages/user-setting/compilation-templates/edit-template'),
+  },
+  {
+    path: Routes.CompilationTemplatesCreateNext,
+    layout: false,
+    Component: () =>
+      import('@/pages/user-setting/compilation-templates/create-next'),
+  },
+  {
+    path: `${Routes.CompilationTemplatesCreateNext}/:id`,
+    layout: false,
+    Component: () =>
+      import('@/pages/user-setting/compilation-templates/create-next'),
+  },
+  {
     path: `${Routes.SearchShare}`,
     Component: () => import('@/pages/next-search/share'),
+  },
+  {
+    path: `${Routes.DatasetBase}${Routes.Compilation}/:id`,
+    Component: () => import('@/pages/dataset/compilation'),
   },
   {
     path: Routes.Agent,

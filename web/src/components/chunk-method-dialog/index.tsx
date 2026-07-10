@@ -37,6 +37,7 @@ import {
   AutoQuestionsFormField,
 } from '../auto-keywords-form-field';
 import { ChildrenDelimiterForm } from '../children-delimiter-form';
+import { CompilationTemplateFormField } from '../compilation-template-form-field';
 import { DataFlowSelect } from '../data-pipeline-select';
 import { DelimiterFormField } from '../delimiter-form-field';
 import { EntityTypesFormField } from '../entity-types-form-field';
@@ -152,6 +153,7 @@ export function ChunkMethodDialog({
           )
           .optional(),
         enable_metadata: z.boolean().optional(),
+        compilation_template_group_id: z.array(z.string()).optional(),
       }),
     })
     .superRefine((data, ctx) => {
@@ -247,7 +249,7 @@ export function ChunkMethodDialog({
         pipeline_id: pipelineId || '',
         parseType: pipelineId ? ParseType.Pipeline : ParseType.BuiltIn,
         parser_config: fillDefaultParserValue({
-          pages: pages.length > 0 ? pages : [{ from: 1, to: 1024 }],
+          pages: pages.length > 0 ? pages : [{ from: 1, to: 100000 }],
           ...omit(parserConfig, 'pages'),
           image_table_context_window:
             parserConfig?.image_table_context_window ??
@@ -299,6 +301,10 @@ export function ChunkMethodDialog({
             <div className="space-y-6">
               <ParseTypeItem />
               {parseType === ParseType.BuiltIn && <ChunkMethodItem />}
+
+              {parseType === ParseType.BuiltIn && (
+                <CompilationTemplateFormField></CompilationTemplateFormField>
+              )}
 
               {showPages && parseType === ParseType.BuiltIn && (
                 <DynamicPageRange />
